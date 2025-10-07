@@ -26,7 +26,7 @@
       line-height:1.4;
     }
     a{color:var(--orange)}
-    .container{max-width:1200px; margin-inline:auto; padding:24px}
+    .container{max-width:1100px; margin-inline:auto; padding:24px}
     header{
       background:linear-gradient(0deg,var(--navy-700),var(--navy));
       color:white; padding:28px 20px; position:sticky; top:0; z-index:5; border-bottom:4px solid var(--orange);
@@ -49,173 +49,894 @@
     .btn:focus-visible{outline:3px solid var(--focus); outline-offset:2px}
 
     .grid{display:grid; gap:16px}
-    .two{grid-template-columns:300px 1fr}
+    .two{grid-template-columns:1fr}
+    @media(min-width:920px){ .two{grid-template-columns:300px 1fr} }
 
     .card{background:var(--card); border:1px solid var(--border); border-radius:16px; padding:18px; box-shadow:0 2px 12px rgba(0,0,0,.04)}
     .card h2{margin:0 0 8px 0; font-size:18px}
 
     .muted{color:var(--muted)}
+    .kbd{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas; background:#eef2ff; border:1px solid #c7d2fe; padding:2px 6px; border-radius:6px}
+
     label{font-weight:600; display:block; margin:.6rem 0 .3rem}
     input[type="text"], input[type="number"], input[type="url"], input[type="date"], textarea, select{
       width:100%; padding:10px 12px; border-radius:12px; border:1px solid var(--border); background:#fff; color:var(--text);
     }
+    textarea{min-height:110px}
+
+    .row{display:flex; gap:8px; align-items:center}
+    .row > *{flex:1}
+
+    .pill{display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; background:#eef1f7; border:1px solid var(--border); margin:4px 6px 0 0}
+    .pill button{border:none; background:transparent; cursor:pointer}
 
     .list{display:grid; gap:12px}
     .list .item{padding:12px; border:1px solid var(--border); border-radius:12px; background:#fff; display:flex; justify-content:space-between; align-items:center; gap:10px}
     .list .item .meta{font-size:12px; color:var(--muted)}
 
     .sidebar{position:sticky; top:112px; align-self:start}
+
+    .toolbar{display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:8px 0 12px}
+
+    .divider{height:1px; background:var(--border); margin:12px 0}
+
+    .sr-only{position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0}
+
+    dialog{border:none; padding:0; border-radius:16px; width:min(720px,92vw); box-shadow:0 25px 60px rgba(0,0,0,.2)}
+    dialog::backdrop{background:rgba(11,30,63,.6)}
+    .modal{padding:16px}
+
+    .tag-input{display:flex; flex-wrap:wrap; gap:6px; padding:8px; border:1px solid var(--border); border-radius:12px; background:#fff}
+    .tag-input input{border:none; outline:none; flex:1; min-width:120px}
+
+    .help{font-size:12px; color:var(--muted)}
+
+    .empty{padding:20px; text-align:center; color:var(--muted)}
   </style>
 </head>
 <body>
-  <header>
+  <header role="banner">
     <div class="container">
-      <div class="brand">
-        <span class="mark"></span>
+      <div class="brand" aria-label="App brand">
+        <span class="mark" aria-hidden="true"></span>
         <h1>Personal Reference Manager</h1>
       </div>
-      <nav>
-        <button class="btn ghost" data-nav="home">Home</button>
+      <nav aria-label="Primary">
+        <button class="btn ghost" data-nav="home" aria-current="page">Home</button>
         <button class="btn ghost" data-nav="add">Add Reference</button>
         <button class="btn ghost" data-nav="library">Search & Library</button>
       </nav>
     </div>
   </header>
 
-  <main class="container" id="app"></main>
+  <main class="container" id="app" tabindex="-1">
+    <!-- Views are injected here -->
+  </main>
+
+  <dialog id="viewDialog" aria-label="Reference details">
+    <div class="modal">
+      <div class="row" style="justify-content:space-between; align-items:center">
+        <h2 id="detailTitle" style="margin:4px 0">Reference</h2>
+        <div class="row" style="justify-content:flex-end; gap:8px; flex:0 0 auto">
+          <button class="btn secondary" id="editRefBtn">Edit</button>
+          <button class="btn danger" id="deleteRefBtn">Delete</button>
+          <button class="btn" onclick="closeDialog('viewDialog')" aria-label="Close">Close</button>
+        </div>
+      </div>
+      <div id="detailBody" class="card" style="margin-top:8px"></div>
+    </div>
+  </dialog>
+
+  <dialog id="confirmDialog" aria-label="Confirm action">
+    <div class="modal">
+      <h2 style="margin:4px 0">Please confirm</h2>
+      <p id="confirmText"></p>
+      <div class="row" style="justify-content:flex-end">
+        <button class="btn" onclick="closeDialog('confirmDialog')">Cancel</button>
+        <button class="btn danger" id="confirmYes">Yes, delete</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div class="sr-only" aria-live="polite" id="live"></div>
 
   <script>
+  /*********************** Data & Utilities ************************/
   const STORE_KEY = 'prm.references.v1';
   const STYLE_KEY = 'prm.style.v1';
+  const navButtons = () => document.querySelectorAll('[data-nav]');
+
+  const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+  function saveAll(arr){
+    localStorage.setItem(STORE_KEY, JSON.stringify(arr));
+  }
+  function loadAll(){
+    try{ return JSON.parse(localStorage.getItem(STORE_KEY)) || []; }catch{ return [] }
+  }
+  function announce(msg){
+    const live = document.getElementById('live');
+    live.textContent = msg;
+  }
+  function setHash(hash){ location.hash = hash; }
 
   const TYPES = [
-    {id:'journal',name:'Journal article'},
-    {id:'book',name:'Book'},
-    {id:'chapter',name:'Book chapter'},
-    {id:'website',name:'Web page'},
-    {id:'report',name:'Report'},
-    {id:'thesis',name:'Thesis / Dissertation'},
-    {id:'conference',name:'Conference paper'},
-    {id:'newspaper',name:'Newspaper article'}
+    {id:'journal', name:'Journal article'},
+    {id:'book', name:'Book'},
+    {id:'chapter', name:'Book chapter'},
+    {id:'website', name:'Web page'},
+    {id:'report', name:'Report'},
+    {id:'thesis', name:'Thesis / Dissertation'},
+    {id:'conference', name:'Conference paper'},
+    {id:'newspaper', name:'Newspaper article'}
   ];
 
   const STYLES = ['Harvard','APA','MLA','Chicago'];
 
-  const loadAll=()=>JSON.parse(localStorage.getItem(STORE_KEY)||'[]');
-  const saveAll=(a)=>localStorage.setItem(STORE_KEY,JSON.stringify(a));
-  const loadStyle=()=>localStorage.getItem(STYLE_KEY)||'Harvard';
-  const saveStyle=(s)=>localStorage.setItem(STYLE_KEY,s);
-
-  function formatAuthors(ref){
-    if(!ref.authors||!ref.authors.length) return '';
-    return ref.authors.map(a=>\`\${a.first} \${a.last}\`).join(', ');
+  function formatAuthorHarvard(author){
+    const initials = (author.first||'').split(/[\s-]+/).filter(Boolean).map(s=>s[0]?.toUpperCase()).join('');
+    return `${author.last||''}, ${initials}.`;
+  }
+  function formatAuthorsListHarvard(authors){
+    if(!authors || !authors.length) return '';
+    if(authors.length===1) return formatAuthorHarvard(authors[0]);
+    if(authors.length===2) return `${formatAuthorHarvard(authors[0])} and ${formatAuthorHarvard(authors[1])}`;
+    return authors.map((a,i)=> i<authors.length-1 ? formatAuthorHarvard(a) : `and ${formatAuthorHarvard(a)}`).join(', ');
+  }
+  function formatAuthorsFull(authors){
+    if(!authors||!authors.length) return '';
+    return authors.map(a=>`${a.first||''} ${a.last||''}`.trim()).join(', ');
   }
 
-  function formatRef(ref,style){
-    const A=formatAuthors(ref);
-    const Y=ref.year||'n.d.';
-    const T=ref.title||'';
-    switch(style){
-      case 'APA': return \`\${A} (\${Y}). \${T}. \${ref.journal||ref.publisher||''}.\`;
-      case 'MLA': return \`\${A}. "\${T}." \${ref.journal||ref.publisher||''}, \${Y}.\`;
-      case 'Chicago': return \`\${A}. \${Y}. "\${T}." \${ref.journal||ref.publisher||''}.\`;
-      default: return \`\${A} (\${Y}) \${T}. \${ref.journal||ref.publisher||''}.\`; // Harvard
+  function inTextCitation(ref){
+    const first = ref.authors?.[0]?.last || 'Anon';
+    return `(${first}, ${ref.year||'n.d.'})`;
+  }
+  function titleCase(s){ return (s||'').replace(/\s+/g,' ').trim(); }
+
+  function formatHarvard(ref){
+    const A = formatAuthorsListHarvard(ref.authors);
+    const Y = ref.year || 'n.d.';
+    const T = ref.title ? `<i>${ref.title}</i>` : '';
+    const DOI = ref.doi ? ` doi:${ref.doi}` : '';
+    const URL = ref.url ? ` Available at: ${ref.url}${ref.accessed ? ` (Accessed: ${ref.accessed})` : ''}` : '';
+
+    switch(ref.type){
+      case 'journal':{
+        const J = ref.journal || '';
+        const V = ref.volume ? `, ${ref.volume}` : '';
+        const I = ref.issue ? `(${ref.issue})` : '';
+        const P = ref.pages ? `, pp. ${ref.pages}` : '';
+        return `${A} (${Y}) ${ref.title}. <i>${J}</i>${V}${I}${P}.${DOI || URL}`.trim();
+      }
+      case 'book':{
+        const Ed = ref.edition ? `${ref.edition} edn. ` : '';
+        const Pl = ref.place ? `${ref.place}: ` : '';
+        const Pub = ref.publisher || '';
+        return `${A} (${Y}) <i>${ref.title}</i>. ${Ed}${Pl}${Pub}.` + (DOI || URL);
+      }
+      case 'chapter':{
+        const Eds = ref.editors?.length ? ` In: ${formatAuthorsListHarvard(ref.editors)} (eds) <i>${ref.bookTitle||''}</i>` : ` In: <i>${ref.bookTitle||''}</i>`;
+        const Pl = ref.place ? `${ref.place}: ` : '';
+        const Pub = ref.publisher || '';
+        const P = ref.pages ? `, pp. ${ref.pages}` : '';
+        return `${A} (${Y}) ${ref.title}.${Eds}. ${Pl}${Pub}${P}.` + (DOI || URL);
+      }
+      case 'website':{
+        return `${A} (${Y}) ${T}. Available at: ${ref.url||''}${ref.accessed ? ` (Accessed: ${ref.accessed})` : ''}.`;
+      }
+      case 'report':{
+        const Pub = ref.publisher || '';
+        return `${A} (${Y}) <i>${ref.title}</i>. ${Pub}.` + (DOI || URL);
+      }
+      case 'thesis':{
+        const Univ = ref.publisher || '';
+        return `${A} (${Y}) <i>${ref.title}</i>. PhD thesis, ${Univ}.`;
+      }
+      case 'conference':{
+        const Conf = ref.journal || ref.bookTitle || '';
+        return `${A} (${Y}) ${ref.title}. In: ${Conf}.` + (DOI || URL);
+      }
+      case 'newspaper':{
+        const P = ref.pages ? `, p. ${ref.pages}` : '';
+        return `${A} (${Y}) ${ref.title}. ${ref.journal||ref.publisher||''}${P}.`;
+      }
+      default:
+        return `${A} (${Y}) ${T}.` + (DOI || URL);
     }
   }
 
-  function renderLibrary(){
-    const refs=loadAll();
-    const style=loadStyle();
-    const app=document.getElementById('app');
-    app.innerHTML=\`
-    <section class="grid two">
-      <aside class="sidebar card">
-        <h2>Filters</h2>
-        <label>Author</label>
-        <input type="text" id="fAuthor" placeholder="Search author" />
-        <label>Tag</label>
-        <input type="text" id="fTag" placeholder="Search tag" />
-        <label>Journal / Publisher</label>
-        <input type="text" id="fJournal" placeholder="Search journal" />
-        <label>Year range</label>
-        <div style="display:flex; gap:8px">
-          <input type="number" id="yFrom" placeholder="From" />
-          <input type="number" id="yTo" placeholder="To" />
+  // New formatters: APA / MLA / Chicago (simple versions)
+  function formatAPA(ref){
+    const A = formatAuthorsFull(ref.authors);
+    const Y = ref.year || 'n.d.';
+    const T = ref.title || '';
+    const S = ref.journal || ref.publisher || '';
+    switch(ref.type){
+      case 'journal': return `${A} (${Y}). ${T}. ${S}, ${ref.volume||''}${ref.pages?(', pp. '+ref.pages):''}.`;
+      case 'book': return `${A} (${Y}). ${T}. ${ref.publisher||''}.`;
+      default: return `${A} (${Y}). ${T}. ${S}.`;
+    }
+  }
+  function formatMLA(ref){
+    const A = formatAuthorsFull(ref.authors);
+    const Y = ref.year || 'n.d.';
+    const T = ref.title || '';
+    const S = ref.journal || ref.publisher || '';
+    switch(ref.type){
+      case 'journal': return `${A}. "${T}." ${S}, ${Y}, pp. ${ref.pages||''}.`;
+      case 'book': return `${A}. ${T}. ${ref.publisher||''}, ${Y}.`;
+      default: return `${A}. "${T}." ${S}, ${Y}.`;
+    }
+  }
+  function formatChicago(ref){
+    const A = formatAuthorsFull(ref.authors);
+    const Y = ref.year || 'n.d.';
+    const T = ref.title || '';
+    const S = ref.journal || ref.publisher || '';
+    return `${A}. ${Y}. "${T}." ${S}.`;
+  }
+  function formatByStyle(ref, style){
+    switch(style){
+      case 'APA': return formatAPA(ref);
+      case 'MLA': return formatMLA(ref);
+      case 'Chicago': return formatChicago(ref);
+      default: return formatHarvard(ref);
+    }
+  }
+
+  /*********************** Routing ************************/
+  const routes = {
+    home: renderHome,
+    add: renderAdd,
+    library: renderLibrary
+  };
+  function navigate(){
+    const hash = (location.hash.replace('#','')||'home');
+    navButtons().forEach(b=> b.dataset.nav===hash ? b.setAttribute('aria-current','page') : b.removeAttribute('aria-current'));
+    routes[hash]?.();
+    document.getElementById('app').focus();
+  }
+  window.addEventListener('hashchange', navigate);
+  document.addEventListener('DOMContentLoaded', () => {
+    navButtons().forEach(btn=> btn.addEventListener('click',()=> setHash(btn.dataset.nav)));
+    navigate();
+  });
+
+  /*********************** Views (Add & Home kept mostly the same) ************************/
+  function renderHome(){
+    const el = document.getElementById('app');
+    el.innerHTML = `
+      <section class="grid two">
+        <div class="card" role="region" aria-label="Welcome">
+          <h2>Welcome</h2>
+          <p class="muted">A lightweight, accessible reference manager for your readings. Save items in Harvard style, add notes & quotes, and search later.</p>
+          <div class="divider"></div>
+          <div class="toolbar">
+            <button class="btn primary" onclick="setHash('add')">Start adding references</button>
+            <button class="btn secondary" onclick="setHash('library')">Go to your library</button>
+          </div>
+          <p class="help">Your entries are saved in your browser (local storage) for future use.</p>
         </div>
-        <label>Reference Style</label>
-        <select id="refStyle">\${STYLES.map(s=>\`<option \${s===style?'selected':''}>\${s}</option>\`).join('')}</select>
-        <button class="btn" id="clearFilters" style="margin-top:10px">Clear filters</button>
-      </aside>
-      <section>
-        <div class="card">
-          <h2>Search</h2>
-          <input type="text" id="search" placeholder="Search title or notes" />
-        </div>
-        <div class="card">
-          <h2>All references</h2>
-          <div id="list" class="list"></div>
-          <div class="muted" id="empty" style="display:none">No references found.</div>
+        <div class="card" role="region" aria-label="Tips">
+          <h2>Tips</h2>
+          <ul>
+            <li>Use the <span class="kbd">Tab</span> key to navigate fields.</li>
+            <li>Add multiple authors, quotes (with pages), and tags.</li>
+            <li>Use the search page to filter by author, year, tag, or journal.</li>
+          </ul>
         </div>
       </section>
-    </section>\`;
+    `;
+  }
 
-    const fAuthor=document.getElementById('fAuthor');
-    const fTag=document.getElementById('fTag');
-    const fJournal=document.getElementById('fJournal');
-    const yFrom=document.getElementById('yFrom');
-    const yTo=document.getElementById('yTo');
-    const search=document.getElementById('search');
-    const styleSel=document.getElementById('refStyle');
-    const list=document.getElementById('list');
-    const empty=document.getElementById('empty');
+  // ---- renderAdd kept identical to original (omitted here for brevity) ----
+  // We'll reuse the original renderAdd function from your previous working file to keep full functionality.
+  // For brevity in this file, we'll reconstruct it based on the original app's add/edit code.
+  function renderAdd(existing){
+    const ref = existing || {
+      id: uid(),
+      type: 'journal',
+      title: '',
+      year: '',
+      authors: [{first:'', last:''}],
+      editors: [],
+      journal: '',
+      volume: '',
+      issue: '',
+      pages: '',
+      doi: '',
+      url: '',
+      accessed: '',
+      publisher: '',
+      place: '',
+      edition: '',
+      bookTitle: '',
+      review: '',
+      quotes: [], // {text,page}
+      tags: []
+    };
 
-    styleSel.addEventListener('change',()=>{saveStyle(styleSel.value); renderLibrary();});
-    document.getElementById('clearFilters').addEventListener('click',()=>{
-      [fAuthor,fTag,fJournal,yFrom,yTo,search].forEach(i=>i.value='');
+    const el = document.getElementById('app');
+    el.innerHTML = `
+      <section class="grid two">
+        <form class="card" id="refForm" novalidate>
+          <h2>${existing? 'Edit reference' : 'Add a reference'}</h2>
+          <div class="row">
+            <div>
+              <label for="type">Source type</label>
+              <select id="type" name="type" aria-describedby="typeHelp">
+                ${TYPES.map(t=>`<option value="${t.id}">${t.name}</option>`).join('')}
+              </select>
+              <div class="help" id="typeHelp">Fields change based on type.</div>
+            </div>
+            <div>
+              <label for="year">Year</label>
+              <input id="year" name="year" type="number" inputmode="numeric" placeholder="2023" />
+            </div>
+          </div>
+
+          <label>Authors</label>
+          <div id="authors"></div>
+          <div class="toolbar">
+            <button class="btn secondary" type="button" id="addAuthor">Add author</button>
+          </div>
+
+          <div id="typeFields"></div>
+
+          <label for="title">Title</label>
+          <input id="title" name="title" type="text" placeholder="Article / Book / Chapter title" />
+
+          <label for="review">Review / Notes</label>
+          <textarea id="review" name="review" placeholder="Your summary, critique, or key points..."></textarea>
+
+          <label>Quotes</label>
+          <div id="quotes"></div>
+          <div class="toolbar">
+            <button class="btn secondary" type="button" id="addQuote">Add quote</button>
+          </div>
+
+          <label>Tags</label>
+          <div class="tag-input" id="tagInput" aria-label="Tags input">
+            <input type="text" id="tagField" placeholder="Type a tag and press Enter" />
+          </div>
+          <div class="help">Examples: theory, methods, climate, ethics</div>
+
+          <div class="divider"></div>
+          <div class="row" style="justify-content:space-between">
+            <button class="btn" type="button" onclick="setHash('home')">Cancel</button>
+            <div class="row" style="flex:0 0 auto">
+              ${existing ? '<button class="btn secondary" type="button" id="duplicateBtn">Duplicate</button>' : ''}
+              <button class="btn primary" type="submit">${existing? 'Save changes' : 'Save reference'}</button>
+            </div>
+          </div>
+        </form>
+
+        <aside class="card" aria-label="Reference preview">
+          <h2>Reference preview</h2>
+          <p id="harvardPreview" class="muted">Fill in the form to see the formatted reference.</p>
+          <div class="divider"></div>
+          <h2>In-text citation</h2>
+          <p id="inTextPreview" class="muted">(Surname, Year)</p>
+        </aside>
+      </section>
+    `;
+
+    // populate
+    document.getElementById('type').value = ref.type;
+    document.getElementById('year').value = ref.year;
+    document.getElementById('title').value = ref.title;
+    document.getElementById('review').value = ref.review;
+
+    // authors
+    const authorsEl = document.getElementById('authors');
+    function renderAuthors(){
+      authorsEl.innerHTML = '';
+      (ref.authors||[]).forEach((a,idx)=>{
+        const row = document.createElement('div'); row.className='row'; row.style.marginBottom='8px';
+        row.innerHTML = `
+          <input type="text" placeholder="First name(s)" value="${a.first||''}" aria-label="Author ${idx+1} first name"/>
+          <input type="text" placeholder="Surname" value="${a.last||''}" aria-label="Author ${idx+1} surname"/>
+          <button class="btn secondary" type="button" aria-label="Remove author ${idx+1}">Remove</button>
+        `;
+        const [first,last,btn] = row.querySelectorAll('input,button');
+        first.addEventListener('input', e=> { a.first = e.target.value; updatePreview(); });
+        last.addEventListener('input', e=> { a.last = e.target.value; updatePreview(); });
+        btn.addEventListener('click', ()=> { ref.authors.splice(idx,1); if(!ref.authors.length) ref.authors.push({first:'',last:''}); renderAuthors(); updatePreview(); });
+        authorsEl.appendChild(row);
+      });
+    }
+    document.getElementById('addAuthor').addEventListener('click', ()=>{ ref.authors.push({first:'', last:''}); renderAuthors(); });
+    renderAuthors();
+
+    // quotes
+    const quotesEl = document.getElementById('quotes');
+    function renderQuotes(){
+      quotesEl.innerHTML = '';
+      (ref.quotes||[]).forEach((q,idx)=>{
+        const block = document.createElement('div'); block.className='card';
+        block.innerHTML = `
+          <label class="sr-only">Quote ${idx+1}</label>
+          <textarea placeholder="Quote text">${q.text||''}</textarea>
+          <div class="row">
+            <input type="text" placeholder="Page(s) e.g. 12 or 12-14" value="${q.page||''}" aria-label="Quote page"/>
+            <button class="btn secondary" type="button">Remove quote</button>
+          </div>
+        `;
+        const [ta, pg, rm] = block.querySelectorAll('textarea,input,button');
+        ta.addEventListener('input', e=> { q.text = e.target.value; });
+        pg.addEventListener('input', e=> { q.page = e.target.value; });
+        rm.addEventListener('click', ()=>{ ref.quotes.splice(idx,1); renderQuotes(); });
+        quotesEl.appendChild(block);
+      });
+    }
+    document.getElementById('addQuote').addEventListener('click', ()=>{ ref.quotes.push({text:'', page:''}); renderQuotes(); });
+    renderQuotes();
+
+    // tags
+    const tagInput = document.getElementById('tagInput');
+    const tagField = document.getElementById('tagField');
+    function renderTags(){
+      [...tagInput.querySelectorAll('.pill')].forEach(p=>p.remove());
+      (ref.tags||[]).forEach((t,idx)=>{
+        const pill = document.createElement('span'); pill.className='pill'; pill.innerHTML = `${t} <button aria-label="Remove ${t}">×</button>`;
+        pill.querySelector('button').addEventListener('click', ()=>{ ref.tags.splice(idx,1); renderTags(); });
+        tagInput.insertBefore(pill, tagField);
+      });
+    }
+    function addTagFromField(){
+      const val = tagField.value.trim();
+      if(val && !ref.tags.includes(val)) { ref.tags.push(val); tagField.value=''; renderTags(); }
+    }
+    tagField.addEventListener('keydown', e=>{
+      if(e.key==='Enter' || e.key===','){ e.preventDefault(); addTagFromField(); }
+      if(e.key==='Backspace' && !tagField.value && ref.tags.length){ ref.tags.pop(); renderTags(); }
+    });
+    tagField.addEventListener('blur', addTagFromField);
+    renderTags();
+
+    // type-specific fields
+    const typeFields = document.getElementById('typeFields');
+    function drawTypeFields(){
+      const t = ref.type;
+      let html = '';
+      if(t==='journal'){
+        html = `
+          <div class="row">
+            <div>
+              <label for="journal">Journal</label>
+              <input id="journal" type="text" placeholder="e.g. Nature" />
+            </div>
+            <div>
+              <label for="volume">Volume</label>
+              <input id="volume" type="text" placeholder="e.g. 12" />
+            </div>
+          </div>
+          <div class="row">
+            <div>
+              <label for="issue">Issue</label>
+              <input id="issue" type="text" placeholder="e.g. 3" />
+            </div>
+            <div>
+              <label for="pages">Pages</label>
+              <input id="pages" type="text" placeholder="e.g. 123-147" />
+            </div>
+          </div>
+        `;
+      } else if(t==='book'){
+        html = `
+          <div class="row">
+            <div>
+              <label for="edition">Edition</label>
+              <input id="edition" type="text" placeholder="e.g. 2nd" />
+            </div>
+            <div>
+              <label for="publisher">Publisher</label>
+              <input id="publisher" type="text" placeholder="e.g. Routledge" />
+            </div>
+          </div>
+          <div class="row">
+            <div>
+              <label for="place">Place</label>
+              <input id="place" type="text" placeholder="e.g. London" />
+            </div>
+          </div>
+        `;
+      } else if(t==='chapter'){
+        html = `
+          <div class="row">
+            <div>
+              <label for="bookTitle">Book title (container)</label>
+              <input id="bookTitle" type="text" placeholder="e.g. Handbook of X" />
+            </div>
+            <div>
+              <label for="pages">Pages</label>
+              <input id="pages" type="text" placeholder="e.g. 45-62" />
+            </div>
+          </div>
+          <label>Editors</label>
+          <div id="editors"></div>
+          <div class="toolbar">
+            <button class="btn secondary" type="button" id="addEditor">Add editor</button>
+          </div>
+          <div class="row">
+            <div>
+              <label for="publisher">Publisher</label>
+              <input id="publisher" type="text" placeholder="e.g. Sage" />
+            </div>
+            <div>
+              <label for="place">Place</label>
+              <input id="place" type="text" placeholder="e.g. London" />
+            </div>
+          </div>
+        `;
+      } else if(t==='website'){
+        html = `
+          <div class="row">
+            <div>
+              <label for="url">URL</label>
+              <input id="url" type="url" placeholder="https://..." />
+            </div>
+            <div>
+              <label for="accessed">Accessed date</label>
+              <input id="accessed" type="date" />
+            </div>
+          </div>
+        `;
+      } else if(t==='report' || t==='thesis'){
+        html = `
+          <div class="row">
+            <div>
+              <label for="publisher">Publisher / Institution</label>
+              <input id="publisher" type="text" placeholder="e.g. WHO / University" />
+            </div>
+          </div>
+        `;
+      } else if(t==='conference' || t==='newspaper'){
+        html = `
+          <div class="row">
+            <div>
+              <label for="journal">Conference / Newspaper</label>
+              <input id="journal" type="text" placeholder="e.g. Proceedings of X / The Times" />
+            </div>
+            <div>
+              <label for="pages">Pages</label>
+              <input id="pages" type="text" placeholder="e.g. 12-13 or p.4" />
+            </div>
+          </div>
+        `;
+      }
+      // common identifiers
+      html += `
+        <div class="row">
+          <div>
+            <label for="doi">DOI</label>
+            <input id="doi" type="text" placeholder="10.1234/abcd" />
+          </div>
+          ${t!=='website' ? `
+          <div>
+            <label for="url">URL</label>
+            <input id="url" type="url" placeholder="https://..." />
+          </div>` : ''}
+        </div>`;
+
+      typeFields.innerHTML = html;
+
+      // attach editor controls if chapter
+      if(t==='chapter'){
+        const edWrap = document.getElementById('editors');
+        function renderEditors(){
+          edWrap.innerHTML='';
+          (ref.editors||[]).forEach((e,idx)=>{
+            const row = document.createElement('div'); row.className='row'; row.style.marginBottom='8px';
+            row.innerHTML = `
+              <input type="text" placeholder="First name(s)" value="${e.first||''}" aria-label="Editor ${idx+1} first name"/>
+              <input type="text" placeholder="Surname" value="${e.last||''}" aria-label="Editor ${idx+1} surname"/>
+              <button class="btn secondary" type="button">Remove</button>`;
+            const [f,l,rm] = row.querySelectorAll('input,button');
+            f.addEventListener('input', ev=>{ e.first = ev.target.value; updatePreview(); });
+            l.addEventListener('input', ev=>{ e.last = ev.target.value; updatePreview(); });
+            rm.addEventListener('click', ()=>{ ref.editors.splice(idx,1); renderEditors(); updatePreview(); });
+            edWrap.appendChild(row);
+          });
+        }
+        document.getElementById('addEditor').addEventListener('click', ()=>{ ref.editors.push({first:'', last:''}); renderEditors(); });
+        renderEditors();
+      }
+
+      // wire common field sync
+      ['journal','volume','issue','pages','doi','url','accessed','publisher','place','edition','bookTitle']
+        .forEach(id=>{ const el = document.getElementById(id); if(!el) return; el.value = ref[id]||''; el.addEventListener('input', e=>{ ref[id]=e.target.value; updatePreview(); }); });
+    }
+
+    drawTypeFields();
+
+    // sync basic fields
+    document.getElementById('type').addEventListener('change', e=>{ ref.type=e.target.value; drawTypeFields(); updatePreview(); });
+    document.getElementById('year').addEventListener('input', e=>{ ref.year=e.target.value; updatePreview(); });
+    document.getElementById('title').addEventListener('input', e=>{ ref.title=e.target.value; updatePreview(); });
+    document.getElementById('review').addEventListener('input', e=>{ ref.review=e.target.value; });
+
+    function updatePreview(){
+      document.getElementById('harvardPreview').innerHTML = formatHarvard(ref);
+      document.getElementById('inTextPreview').textContent = `${inTextCitation(ref)} - ${ref.title||''}`;
+    }
+    updatePreview();
+
+    // submit
+    document.getElementById('refForm').addEventListener('submit', (e)=>{
+      e.preventDefault();
+      const all = loadAll();
+      const existsIndex = all.findIndex(x=> x.id===ref.id);
+      if(existsIndex>=0){ all[existsIndex] = {...ref, updatedAt: Date.now()}; announce('Reference updated'); }
+      else { all.push({...ref, createdAt: Date.now()}); announce('Reference saved'); }
+      saveAll(all);
+      setHash('library');
+    });
+
+    // duplicate button
+    const dup = document.getElementById('duplicateBtn');
+    if(dup){ dup.addEventListener('click', ()=>{ const copy = JSON.parse(JSON.stringify(ref)); copy.id = uid(); copy.title += ' (copy)'; renderAdd(copy); announce('Duplicated'); }); }
+
+    // preload existing
+    if(existing){
+      // fields already set via value assignments
+    }
+  }
+
+  /*********************** Updated renderLibrary (filters as searches, left sidebar) ************************/
+  function renderLibrary(){
+    const el = document.getElementById('app');
+    const refs = loadAll();
+    const currentStyle = localStorage.getItem(STYLE_KEY) || 'Harvard';
+
+    el.innerHTML = `
+      <section class="grid two">
+        <aside class="sidebar card" aria-label="Filters">
+          <h2>Filters</h2>
+          <label for="filterAuthor">Author</label>
+          <input id="filterAuthor" type="text" placeholder="e.g. Ada Lovelace" />
+          <label for="filterTag">Tag</label>
+          <input id="filterTag" type="text" placeholder="e.g. methods" />
+          <label for="filterJournal">Journal / Publisher</label>
+          <input id="filterJournal" type="text" placeholder="e.g. Nature" />
+          <label>Year range</label>
+          <div class="row">
+            <input id="filterYearFrom" type="number" placeholder="From" />
+            <input id="filterYearTo" type="number" placeholder="To" />
+          </div>
+          <div class="divider"></div>
+          <label for="stylePicker">Reference style</label>
+          <select id="stylePicker" aria-label="Reference style">\${STYLES.map(s=>`<option value="\${s}" \${s===currentStyle?'selected':''}>\${s}</option>`).join('')}</select>
+          <div class="divider"></div>
+          <div class="toolbar" style="margin-top:8px">
+            <button class="btn" id="clearFilters">Clear filters</button>
+            <button class="btn primary" id="addNew">Add new</button>
+          </div>
+          <div class="divider"></div>
+          <div class="muted">Quick stats</div>
+          <div style="margin-top:8px" id="stats"></div>
+        </aside>
+
+        <section>
+          <div class="card" role="search">
+            <h2>Search</h2>
+            <input type="text" id="globalSearch" placeholder="Search title, review, quotes..." aria-describedby="searchHelp" />
+            <div id="searchHelp" class="help">Results respect filter fields on the left.</div>
+            <div class="toolbar" style="margin-top:12px">
+              <button class="btn secondary" id="exportBtn">Export</button>
+              <input type="file" id="importFile" accept="application/json" style="display:none" />
+              <button class="btn" id="importBtn">Import</button>
+            </div>
+          </div>
+
+          <div class="card" id="defaultList">
+            <h2>References</h2>
+            <div id="list" class="list"></div>
+            <div class="empty" id="emptyMsg" hidden>No references yet. Click “Add new reference”.</div>
+          </div>
+
+          <div class="card" id="searchResults" hidden>
+            <h2>Search results</h2>
+            <div class="grid" style="grid-template-columns:1fr; gap:18px">
+              <div>
+                <h3>Matches in title</h3>
+                <div id="resTitle" class="list"></div>
+              </div>
+              <div>
+                <h3>Matches in review</h3>
+                <div id="resReview" class="list"></div>
+              </div>
+              <div>
+                <h3>Matches in quotes</h3>
+                <div id="resQuotes" class="list"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </section>
+    `;
+
+    // wire buttons
+    document.getElementById('addNew').addEventListener('click', ()=> setHash('add'));
+    document.getElementById('exportBtn').addEventListener('click', ()=>{
+      const data = JSON.stringify(loadAll(), null, 2);
+      const blob = new Blob([data], {type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href=url; a.download='references.json'; a.click(); URL.revokeObjectURL(url);
+    });
+    document.getElementById('importBtn').addEventListener('click', ()=> document.getElementById('importFile').click());
+    document.getElementById('importFile').addEventListener('change', (e)=>{
+      const file = e.target.files[0]; if(!file) return;
+      const reader = new FileReader();
+      reader.onload = ()=>{ try{
+        const arr = JSON.parse(reader.result);
+        if(Array.isArray(arr)) { saveAll(arr); announce('Imported references'); renderLibrary(); }
+        else alert('Invalid JSON');
+      } catch(err){ alert('Failed to import: '+err.message); }
+      };
+      reader.readAsText(file);
+    });
+
+    // filters & search elements
+    const fAuthor = document.getElementById('filterAuthor');
+    const fTag = document.getElementById('filterTag');
+    const fJournal = document.getElementById('filterJournal');
+    const fYFrom = document.getElementById('filterYearFrom');
+    const fYTo = document.getElementById('filterYearTo');
+    const stylePicker = document.getElementById('stylePicker');
+    const globalSearch = document.getElementById('globalSearch');
+    const clearFilters = document.getElementById('clearFilters');
+    const listEl = document.getElementById('list');
+    const statsEl = document.getElementById('stats');
+    const emptyMsg = document.getElementById('emptyMsg');
+    const searchResults = document.getElementById('searchResults');
+    const defaultList = document.getElementById('defaultList');
+
+    // stats
+    function updateStats(){
+      const total = refs.length;
+      const byType = refs.reduce((acc,r)=> (acc[r.type]=(acc[r.type]||0)+1, acc), {});
+      statsEl.innerHTML = \`<div class="muted">Total: \${total}</div>\` + Object.entries(byType).map(([k,v])=>`<div style="font-size:13px">${TYPES.find(t=>t.id===k)?.name||k}: ${v}</div>`).join('');
+    }
+    updateStats();
+
+    // restore style selection from storage
+    stylePicker.value = localStorage.getItem(STYLE_KEY) || 'Harvard';
+    stylePicker.addEventListener('change', ()=>{ localStorage.setItem(STYLE_KEY, stylePicker.value); renderLibrary(); });
+
+    clearFilters.addEventListener('click', ()=>{
+      [fAuthor,fTag,fJournal,fYFrom,fYTo,globalSearch].forEach(i=>i.value='');
       renderList();
     });
-    [fAuthor,fTag,fJournal,yFrom,yTo,search].forEach(el=>el.addEventListener('input',renderList));
 
-    function applyFilters(r){
-      const a=fAuthor.value.toLowerCase();
-      const t=fTag.value.toLowerCase();
-      const j=fJournal.value.toLowerCase();
-      const yF=Number(yFrom.value)||-Infinity;
-      const yT=Number(yTo.value)||Infinity;
-      const q=search.value.toLowerCase();
-      return (!a||formatAuthors(r).toLowerCase().includes(a))
-        &&(!t||(r.tags||[]).some(x=>x.toLowerCase().includes(t)))
-        &&(!j&&!(r.journal||r.publisher)?true:(r.journal||r.publisher||'').toLowerCase().includes(j))
-        &&(!r.year||(+r.year>=yF&&+r.year<=yT))
-        &&(!q||((r.title||'').toLowerCase().includes(q)||(r.review||'').toLowerCase().includes(q)));
+    [fAuthor,fTag,fJournal,fYFrom,fYTo,globalSearch].forEach(i=> i.addEventListener('input', ()=>{ renderList(); doSearch(); }));
+
+    function getFilters(){
+      return {
+        author: (fAuthor.value||'').toLowerCase().trim(),
+        tag: (fTag.value||'').toLowerCase().trim(),
+        journal: (fJournal.value||'').toLowerCase().trim(),
+        yFrom: Number(fYFrom.value) || -Infinity,
+        yTo: Number(fYTo.value) || Infinity
+      };
+    }
+
+    function applyFilters(items){
+      const f = getFilters();
+      return items.filter(r=>{
+        const authorNames = formatAuthorsFull(r.authors).toLowerCase();
+        const tagOk = !f.tag || (r.tags||[]).some(t=> t.toLowerCase().includes(f.tag));
+        const journalOk = !f.journal || ((r.journal||r.publisher||'').toLowerCase().includes(f.journal));
+        const authorOk = !f.author || authorNames.includes(f.author);
+        const yearOk = !r.year || (+r.year >= f.yFrom && +r.year <= f.yTo);
+        return authorOk && tagOk && journalOk && yearOk;
+      });
+    }
+
+    function shortLine(r, styleNow){
+      return `${formatAuthorsFull(r.authors)} — ${r.title || ''} <div class="meta">${formatByStyle(r, styleNow)}</div>`;
+    }
+
+    function itemRow(r, styleNow){
+      const div = document.createElement('div'); div.className='item';
+      const left = document.createElement('div');
+      left.innerHTML = `<div><strong>${formatAuthorsFull(r.authors)||'—'}</strong> — ${r.title || ''}</div><div class="meta">${formatByStyle(r, styleNow)}</div>`;
+      const right = document.createElement('div'); right.style.flex='0 0 auto'; right.className='row';
+      const view = document.createElement('button'); view.className='btn secondary'; view.textContent='Open'; view.addEventListener('click', ()=> openDetail(r.id));
+      const edit = document.createElement('button'); edit.className='btn secondary'; edit.textContent='Edit'; edit.addEventListener('click', ()=> editRef(r.id));
+      const del = document.createElement('button'); del.className='btn danger'; del.textContent='Delete'; del.addEventListener('click', ()=> confirmDelete(r.id));
+      right.append(view, edit, del);
+      div.append(left, right);
+      return div;
     }
 
     function renderList(){
-      list.innerHTML='';
-      const styleNow=loadStyle();
-      const items=refs.filter(applyFilters);
-      if(!items.length){empty.style.display='block';return;}
-      empty.style.display='none';
-      items.forEach(r=>{
-        const div=document.createElement('div');
-        div.className='item';
-        div.innerHTML=\`<div><strong>\${formatAuthors(r)}</strong> — \${r.title||''}<div class="meta">\${formatRef(r,styleNow)}</div></div>\`;
-        list.appendChild(div);
-      });
+      const styleNow = localStorage.getItem(STYLE_KEY) || 'Harvard';
+      const items = applyFilters(refs).sort((a,b)=> (b.year||0)-(a.year||0));
+      listEl.innerHTML = '';
+      if(!items.length){ emptyMsg.hidden=false; return; } else { emptyMsg.hidden=true; }
+      items.forEach(r=> listEl.appendChild(itemRow(r, styleNow)));
     }
     renderList();
+
+    // Search behaviour (respects filters)
+    function doSearch(){
+      const q = (globalSearch.value||'').toLowerCase().trim();
+      if(!q){ searchResults.hidden=true; defaultList.hidden=false; return; }
+      searchResults.hidden=false; defaultList.hidden=true;
+      const filtered = applyFilters(refs);
+      const title = filtered.filter(r=> (r.title||'').toLowerCase().includes(q));
+      const review = filtered.filter(r=> (r.review||'').toLowerCase().includes(q));
+      const quotes = filtered.filter(r=> (r.quotes||[]).some(qu=> (qu.text||'').toLowerCase().includes(q)));
+      const fill = (id, arr)=>{
+        const box = document.getElementById(id); box.innerHTML='';
+        if(!arr.length){ box.innerHTML = '<div class="empty">No matches</div>'; return; }
+        arr.forEach(r=> box.appendChild(itemRow(r, localStorage.getItem(STYLE_KEY)||'Harvard')));
+      };
+      fill('resTitle', title);
+      fill('resReview', review);
+      fill('resQuotes', quotes);
+    }
+
+    globalSearch.addEventListener('input', doSearch);
   }
 
-  function renderHome(){
-    document.getElementById('app').innerHTML='<div class="card"><h2>Welcome</h2><p>Go to the Library to view and manage your references.</p></div>';
+  /*********************** Detail / Edit / Delete (kept from original) ************************/
+  function openDetail(id){
+    const ref = loadAll().find(r=> r.id===id); if(!ref) return;
+    const body = document.getElementById('detailBody');
+    document.getElementById('detailTitle').textContent = ref.title || 'Reference';
+    const authors = formatAuthorsFull(ref.authors);
+    const tags = (ref.tags||[]).map(t=> `<span class="pill" aria-hidden="true">${t}</span>`).join(' ');
+    const quotes = (ref.quotes||[]).map(q=> `<li>“${q.text}” <span class="meta">(p. ${q.page||'—'})</span></li>`).join('');
+    body.innerHTML = `
+      <p><strong>Reference:</strong> ${formatByStyle(ref, localStorage.getItem(STYLE_KEY)||'Harvard')}</p>
+      <div class="divider"></div>
+      <div class="grid" style="grid-template-columns:1fr 1fr">
+        <div>
+          <p><strong>Type:</strong> ${ref.type}</p>
+          <p><strong>Authors:</strong> ${authors||'—'}</p>
+          <p><strong>Year:</strong> ${ref.year||'—'}</p>
+          <p><strong>Title:</strong> ${ref.title||'—'}</p>
+          <p><strong>Journal/Publisher:</strong> ${ref.journal||ref.publisher||'—'}</p>
+          <p><strong>Volume(Issue):</strong> ${(ref.volume||'')}${ref.issue? '('+ref.issue+')':''}</p>
+          <p><strong>Pages:</strong> ${ref.pages||'—'}</p>
+          <p><strong>DOI/URL:</strong> ${ref.doi||ref.url||'—'}</p>
+        </div>
+        <div>
+          <p><strong>Tags:</strong> ${tags||'—'}</p>
+          <p><strong>In-text:</strong> ${inTextCitation(ref)} - ${ref.title||''}</p>
+          <p><strong>Review/Notes:</strong></p>
+          <p>${(ref.review||'—').replace(/\n/g,'<br>')}</p>
+          <p><strong>Quotes:</strong></p>
+          <ul>${quotes||'<li class="meta">No quotes</li>'}</ul>
+        </div>
+      </div>
+    `;
+    const dlg = document.getElementById('viewDialog');
+    dlg.showModal();
+    document.getElementById('editRefBtn').onclick = ()=>{ dlg.close(); editRef(id); };
+    document.getElementById('deleteRefBtn').onclick = ()=>{ dlg.close(); confirmDelete(id); };
   }
 
-  function navigate(){
-    const hash=location.hash.replace('#','')||'home';
-    if(hash==='library')renderLibrary();else renderHome();
+  function editRef(id){
+    const ref = loadAll().find(r=> r.id===id); if(!ref) return;
+    setHash('add');
+    setTimeout(()=> renderAdd(ref), 0);
   }
-  window.addEventListener('hashchange',navigate);
-  document.addEventListener('DOMContentLoaded',navigate);
+
+  function confirmDelete(id){
+    const dlg = document.getElementById('confirmDialog');
+    document.getElementById('confirmText').textContent = 'This will permanently delete the reference.';
+    dlg.showModal();
+    document.getElementById('confirmYes').onclick = ()=>{
+      const all = loadAll().filter(r=> r.id!==id); saveAll(all); dlg.close(); announce('Reference deleted');
+      if(document.getElementById('viewDialog').open) document.getElementById('viewDialog').close();
+      setHash('library');
+    };
+  }
+  function closeDialog(id){ document.getElementById(id).close(); }
   </script>
 </body>
 </html>
